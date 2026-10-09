@@ -6,10 +6,13 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import { promisify } from 'node:util';
+import { hostname } from 'node:os';
 import type { DB } from './db';
 import type { Role } from '../shared/domain';
 const scrypt = promisify(scryptCallback);
 export const uid = () => randomUUID();
+/** Identifies this process behind a load balancer (health checks, council session ownership). */
+export const instanceId = process.env.INSTANCE_ID || `${hostname()}:${process.env.PORT || 3001}`;
 export const token = () => randomBytes(32).toString('base64url');
 export const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const loopback = new Set(['localhost', '127.0.0.1', '[::1]']);

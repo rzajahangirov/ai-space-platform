@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { DB } from './db';
-import { audit, authorize, HttpError, uid } from './core';
+import { audit, authorize, HttpError, instanceId, uid } from './core';
 import { CouncilSession, councilTimeLimit, councilTokenLimit } from './council/council';
 import { HttpCouncilLLM, seats, seatLabel, type CouncilLLM } from './council/llm';
 import { tracingEnabled } from './tracing';
@@ -15,10 +15,14 @@ export function setCouncilLLM(value: CouncilLLM | undefined) {
 }
 
 export function registerCouncilRoutes(app: FastifyInstance, db: DB, hub: RealtimeHub) {
-  // A session cannot outlive its process: mark interrupted ones instead of silently resuming paid calls.
-  const ready = db.query(
-    "UPDATE council_sessions SET status='failed',error='Interrupted by a server restart.',finished_at=now() WHERE status='running'",
-  );
+  // A session cannot outlive its process: this instance fails its own interrupted sessions, and any
+  // instance fails sessions well past their deadline (their instance died), instead of resuming paid calls.
+  const recover = () =>
+    db.query(
+      "UPDATE council_sessions SET status='failed',error='Interrupted by a server restart.',finished_at=now() WHERE status='running' AND (instance_id=$1 OR instance_id IS NULL OR deadline_at < now() - interval '1 minute')",
+      [instanceId],
+    );
+  const ready = recover();
 
   app.get('/api/projects/:id/council', async (request) => {
     await ready;
@@ -70,13 +74,17 @@ export function registerCouncilRoutes(app: FastifyInstance, db: DB, hub: Realtim
         topic: z.string().trim().min(1).max(500).default('Review the whole architecture.'),
       })
       .parse(request.body ?? {});
+    await db.query(
+      "UPDATE council_sessions SET status='failed',error='Its server instance stopped.',finished_at=now() WHERE project_id=$1 AND status='running' AND deadline_at < now() - interval '1 minute'",
+      [pid(request)],
+    );
     const id = uid(),
       timeLimit = councilTimeLimit(),
       tokenLimit = councilTokenLimit();
     try {
       await db.query(
-        `INSERT INTO council_sessions(id,project_id,requested_by,topic,time_limit_seconds,token_limit,deadline_at)
-         VALUES($1,$2,$3,$4,$5,$6,$7)`,
+        `INSERT INTO council_sessions(id,project_id,requested_by,topic,time_limit_seconds,token_limit,deadline_at,instance_id)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
         [
           id,
           pid(request),
@@ -85,6 +93,7 @@ export function registerCouncilRoutes(app: FastifyInstance, db: DB, hub: Realtim
           timeLimit,
           tokenLimit,
           new Date(Date.now() + timeLimit * 1000).toISOString(),
+          instanceId,
         ],
       );
     } catch (e: any) {

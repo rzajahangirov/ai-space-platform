@@ -14,14 +14,17 @@ import { registerConversationRoutes } from './routes-conversations';
 import { registerInviteRoutes } from './routes-invites';
 import { registerCouncilRoutes } from './routes-council';
 import { grantStandardTools } from './agents/defaults';
+import { SnapshotCache } from './snapshot-cache';
 const pid = (r: FastifyRequest) => (r.params as { id: string }).id;
 const text = z.string().trim().min(1).max(4000);
 
 export function registerRoutes(app: FastifyInstance, db: DB, hub: RealtimeHub, origin: string) {
   app.get('/api/projects', async (request) => ({
-    projects: await db.query(
-      `SELECT p.*,m.role,w.name AS workspace_name FROM projects p JOIN project_members m ON m.project_id=p.id JOIN workspaces w ON w.id=p.workspace_id WHERE m.user_id=$1 ORDER BY p.created_at`,
-      [request.actor.id],
+    projects: await db.readOnly((tx) =>
+      tx.query(
+        `SELECT p.*,m.role,w.name AS workspace_name FROM projects p JOIN project_members m ON m.project_id=p.id JOIN workspaces w ON w.id=p.workspace_id WHERE m.user_id=$1 ORDER BY p.created_at`,
+        [request.actor.id],
+      ),
     ),
   }));
   app.get('/api/workspaces', async (request) => ({
@@ -78,12 +81,34 @@ export function registerRoutes(app: FastifyInstance, db: DB, hub: RealtimeHub, o
   registerConversationRoutes(app, db, hub);
   registerInviteRoutes(app, db, hub, origin);
   registerCouncilRoutes(app, db, hub);
-  app.get('/api/projects/:id/snapshot', async (request) =>
-    db.transaction(async (tx) => {
-      const id = pid(request),
-        role = await authorize(tx, request.actor, id);
+  // Read-heavy: one consistent REPEATABLE READ snapshot, served by the read replica when it is current,
+  // and shared for up to SNAPSHOT_CACHE_MS across concurrent readers (see snapshot-cache.ts).
+  const snapshots = new SnapshotCache<any>(Number(process.env.SNAPSHOT_CACHE_MS ?? 1000));
+  hub.onInvalidate((projectId) => snapshots.invalidate(projectId));
+  // Safety net: any write under a project invalidates it, even on a route that does not broadcast.
+  // onSend runs before the response leaves, so a client refetching right after its write never sees
+  // the snapshot from before it.
+  app.addHook('onSend', async (request, _reply, payload) => {
+    const id = (request.params as { id?: string } | undefined)?.id;
+    if (
+      id &&
+      request.method !== 'GET' &&
+      request.method !== 'HEAD' &&
+      request.url.startsWith('/api/projects/')
+    )
+      snapshots.invalidate(id);
+    return payload;
+  });
+  app.get('/api/projects/:id/snapshot', async (request) => {
+    const id = pid(request);
+    const role = await authorize(db, request.actor, id);
+    const body = await snapshots.get(id, () => loadSnapshot(id));
+    return { ...body, project: { ...body.project, role } };
+  });
+  const loadSnapshot = (id: string) =>
+    db.readOnly(async (tx) => {
       const [project] = await tx.query(
-        'SELECT p.*,w.name AS workspace_name FROM projects p JOIN workspaces w ON w.id=p.workspace_id WHERE p.id=$1 FOR SHARE OF p',
+        'SELECT p.*,w.name AS workspace_name FROM projects p JOIN workspaces w ON w.id=p.workspace_id WHERE p.id=$1',
         [id],
       );
       const graph = await readGraph(tx, id);
@@ -135,7 +160,7 @@ export function registerRoutes(app: FastifyInstance, db: DB, hub: RealtimeHub, o
         [id],
       );
       return {
-        project: { ...project, role },
+        project,
         graph,
         views,
         agents,
@@ -156,8 +181,7 @@ export function registerRoutes(app: FastifyInstance, db: DB, hub: RealtimeHub, o
         },
         defaultModel: process.env.OPENAI_MODEL || 'gpt-5.5',
       };
-    }),
-  );
+    });
   app.post('/api/projects/:id/graph', async (request) => {
     const data = z
       .object({

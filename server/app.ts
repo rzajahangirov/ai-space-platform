@@ -7,8 +7,8 @@ import staticFiles from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ZodError } from 'zod';
-import type { DB } from './db';
-import { HttpError } from './core';
+import { readStats, type DB } from './db';
+import { HttpError, instanceId } from './core';
 import { registerAuth } from './auth';
 import { registerRoutes } from './routes';
 import { RealtimeHub } from './realtime';
@@ -23,6 +23,8 @@ export async function buildApp(
     throw new Error('Production APP_ORIGIN must use HTTPS.');
   const app = Fastify({
     logger: options.logger ?? true,
+    // Behind the load balancer, client IPs (rate limits, audit) come from X-Forwarded-For.
+    trustProxy: ['1', 'true'].includes(String(process.env.TRUST_PROXY)),
     bodyLimit: 512000,
     requestTimeout: 15000,
     logController: new LogController({ disableRequestLogging: true }),
@@ -48,11 +50,16 @@ export async function buildApp(
   // Login and registration keep their own strict per-route limits.
   await app.register(rateLimit, {
     timeWindow: '1 minute',
-    max: (request) => (request.cookies?.agentspace_session ? 1500 : 300),
+    // Per-client limits per minute. Load tests raise them through the environment; defaults are unchanged.
+    max: (request) =>
+      request.cookies?.agentspace_session
+        ? Number(process.env.RATE_LIMIT_SESSION_PER_MINUTE) || 1500
+        : Number(process.env.RATE_LIMIT_ANONYMOUS_PER_MINUTE) || 300,
   });
   await app.register(websocket, { options: { maxPayload: 4096 } });
   registerAuth(app, db, origin);
-  const hub = new RealtimeHub();
+  const hub = new RealtimeHub(instanceId);
+  if (process.env.REDIS_URL) await hub.enableFanout(process.env.REDIS_URL);
   hub.register(app, db, origin);
   registerRoutes(app, db, hub, origin);
   const runtime = new AgentRuntime(
@@ -62,7 +69,10 @@ export async function buildApp(
   );
   app.get('/api/health', async () => {
     await db.query('SELECT 1');
-    return { status: 'ok', service: 'agentspace' };
+    // Instance name and read routing help when testing a cluster; production health stays minimal.
+    return process.env.NODE_ENV === 'production'
+      ? { status: 'ok', service: 'agentspace' }
+      : { status: 'ok', service: 'agentspace', instance: instanceId, reads: readStats };
   });
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError)
@@ -102,6 +112,7 @@ export async function buildApp(
     await runtime.stop();
   });
   await app.ready();
-  if (options.worker !== false) await runtime.start();
+  // With several instances only one runs the agent worker (AGENT_WORKER=off on the others).
+  if (options.worker !== false && process.env.AGENT_WORKER !== 'off') await runtime.start();
   return { app, runtime, hub };
 }

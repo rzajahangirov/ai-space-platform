@@ -1,3 +1,46 @@
+# Scaled layout: nginx load balancer → N stateless API replicas + 1 agent worker, PostgreSQL primary with a
+# streaming read replica, and Redis (agent response cache + realtime fan-out between replicas).
+#   docker compose up -d --build                    (2 API replicas)
+#   docker compose up -d --scale app=4              (more replicas)
+x-app-env:
+  &app-env # Local Docker preview uses HTTP. Production must set NODE_ENV=production and HTTPS APP_ORIGIN.
+  NODE_ENV: ${NODE_ENV:-development}
+  DATABASE_URL: postgresql://agentspace:${POSTGRES_PASSWORD}@db:5432/agentspace
+  DATABASE_READ_URL: postgresql://agentspace:${POSTGRES_PASSWORD}@db-replica:5432/agentspace
+  DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+  APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
+  HOST: 0.0.0.0
+  TRUST_PROXY: 'true'
+  SNAPSHOT_CACHE_MS: ${SNAPSHOT_CACHE_MS:-1000}
+  DEMO_PASSWORD: ${DEMO_PASSWORD:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+  OIDC_ISSUER: ${OIDC_ISSUER:-}
+  OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+  OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+  REDIS_URL: redis://redis:6379
+  AGENT_CACHE_TTL_SECONDS: ${AGENT_CACHE_TTL_SECONDS:-900}
+  COUNCIL_TIME_LIMIT_SECONDS: ${COUNCIL_TIME_LIMIT_SECONDS:-400}
+  COUNCIL_TOKEN_LIMIT: ${COUNCIL_TOKEN_LIMIT:-64000}
+  COUNCIL_GOOGLE_MODEL: ${COUNCIL_GOOGLE_MODEL:-gemini-flash-latest}
+  LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+  LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
+  LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+  LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-agentspace}
+  MODEL_PRICES_JSON: ${MODEL_PRICES_JSON:-}
+
+x-app: &app
+  build: .
+  depends_on:
+    db:
+      condition: service_healthy
+    db-replica:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
 services:
   db:
     image: postgres:18
@@ -5,13 +48,35 @@ services:
       POSTGRES_USER: agentspace
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: agentspace
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:?Set REPLICATION_PASSWORD in .env}
+    command: ['postgres', '-c', 'max_connections=300', '-c', 'wal_level=replica']
     volumes:
       - postgres_data:/var/lib/postgresql
+      - ./deploy/postgres/primary-init.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U agentspace']
       interval: 5s
       timeout: 5s
       retries: 20
+    restart: unless-stopped
+  db-replica:
+    image: postgres:18
+    user: postgres
+    environment:
+      PGDATA: /var/lib/postgresql/18/docker
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:?Set REPLICATION_PASSWORD in .env}
+    entrypoint: ['bash', '/replica-entrypoint.sh']
+    volumes:
+      - postgres_replica:/var/lib/postgresql
+      - ./deploy/postgres/replica-entrypoint.sh:/replica-entrypoint.sh:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U agentspace -h 127.0.0.1']
+      interval: 5s
+      timeout: 5s
+      retries: 30
     restart: unless-stopped
   redis:
     image: redis:8-alpine
@@ -33,38 +98,36 @@ services:
       timeout: 3s
       retries: 20
     restart: unless-stopped
+  # Stateless API replicas behind the load balancer. They do not run the agent worker.
   app:
-    build: .
+    <<: *app
     environment:
-      # Local Docker preview uses HTTP. Production must set NODE_ENV=production and HTTPS APP_ORIGIN.
-      NODE_ENV: ${NODE_ENV:-development}
-      DATABASE_URL: postgresql://agentspace:${POSTGRES_PASSWORD}@db:5432/agentspace
-      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3001}
-      HOST: 0.0.0.0
-      DEMO_PASSWORD: ${DEMO_PASSWORD:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
-      OIDC_ISSUER: ${OIDC_ISSUER:-}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
-      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
-      REDIS_URL: redis://redis:6379
-      AGENT_CACHE_TTL_SECONDS: ${AGENT_CACHE_TTL_SECONDS:-900}
-      COUNCIL_TIME_LIMIT_SECONDS: ${COUNCIL_TIME_LIMIT_SECONDS:-400}
-      COUNCIL_TOKEN_LIMIT: ${COUNCIL_TOKEN_LIMIT:-64000}
-      COUNCIL_GOOGLE_MODEL: ${COUNCIL_GOOGLE_MODEL:-gemini-flash-latest}
-      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
-      LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
-      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
-      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-agentspace}
-      MODEL_PRICES_JSON: ${MODEL_PRICES_JSON:-}
+      <<: *app-env
+      AGENT_WORKER: 'off'
+    deploy:
+      replicas: ${API_REPLICAS:-2}
+  # Exactly one instance runs the agent worker (review queue, run recovery); it also serves as a backup API.
+  worker:
+    <<: *app
+    environment:
+      <<: *app-env
+      AGENT_WORKER: 'on'
+      INSTANCE_ID: worker
+  lb:
+    image: nginx:1.29-alpine
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
-      - '127.0.0.1:3001:3001'
+      - '127.0.0.1:8080:8080'
     depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - app
+      - worker
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/lb/health']
+      interval: 10s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 volumes:
   postgres_data:
+  postgres_replica:
