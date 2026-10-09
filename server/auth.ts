@@ -15,8 +15,10 @@ import {
 declare module 'fastify' {
   interface FastifyRequest {
     actor: Actor;
+    sessionHash: string;
   }
 }
+const livePath = /^\/api\/projects\/[^/?]+\/live\?/;
 const credentials = z.object({
   email: z
     .email()
@@ -28,6 +30,10 @@ export function registerAuth(app: FastifyInstance, db: DB, origin: string) {
   const secure = process.env.NODE_ENV === 'production';
   const cookieOptions = { httpOnly: true, secure, sameSite: 'lax' as const, path: '/' };
   const flows = new Map<string, { verifier: string; nonce: string; expires: number }>();
+  // Single-use live-connection tickets, keyed by hash, bound to the issuing session.
+  const tickets = new Map<string, { sessionHash: string; expires: number }>();
+  // Set when the frontend is served from another origin than the API (e.g. Vercel + Render).
+  const liveOrigin = process.env.LIVE_ORIGIN?.replace(/\/$/, '') || null;
   let oidcConfig: Promise<oidc.Configuration> | undefined;
   const configured = Boolean(
     process.env.OIDC_ISSUER && process.env.OIDC_CLIENT_ID && process.env.OIDC_CLIENT_SECRET,
@@ -48,6 +54,7 @@ export function registerAuth(app: FastifyInstance, db: DB, origin: string) {
     return { user };
   }
   app.decorateRequest('actor');
+  app.decorateRequest('sessionHash', '');
   app.addHook('onRequest', async (request, reply) => {
     if (!request.url.startsWith('/api/')) return;
     // Require a same-origin custom header for every mutation (including login) to block CSRF.
@@ -59,19 +66,42 @@ export function registerAuth(app: FastifyInstance, db: DB, origin: string) {
         throw new HttpError(403, 'Cross-origin request rejected.');
     }
     if (request.url.startsWith('/api/auth/') || request.url === '/api/health') return;
-    const value = request.cookies.agentspace_session;
-    if (!value) throw new HttpError(401, 'Sign in to continue.');
+    let sessionHash: string;
+    const ticket = (request.query as { ticket?: unknown } | undefined)?.ticket;
+    if (typeof ticket === 'string' && livePath.test(request.url)) {
+      const key = hash(ticket),
+        entry = tickets.get(key);
+      tickets.delete(key);
+      if (!entry || entry.expires < Date.now())
+        throw new HttpError(401, 'Live connection ticket expired.');
+      sessionHash = entry.sessionHash;
+    } else {
+      const value = request.cookies.agentspace_session;
+      if (!value) throw new HttpError(401, 'Sign in to continue.');
+      sessionHash = hash(value);
+    }
     const [user] = await db.query<Actor>(
       'SELECT u.id,u.name,u.email FROM sessions s JOIN users u ON s.user_id=u.id WHERE s.token_hash=$1 AND s.expires_at>now()',
-      [hash(value)],
+      [sessionHash],
     );
     if (!user) {
       reply.clearCookie('agentspace_session', { path: '/' });
       throw new HttpError(401, 'Your session expired. Sign in again.');
     }
     request.actor = user;
+    request.sessionHash = sessionHash;
   });
-  app.get('/api/auth/config', async () => ({ oidc: configured }));
+  app.get('/api/auth/config', async () => ({ oidc: configured, liveOrigin }));
+  // A cross-origin frontend cannot attach the session cookie to a WebSocket upgrade on the API
+  // origin. It fetches this short-lived, single-use ticket (same-origin via its proxy) instead.
+  app.post('/api/live-ticket', async (request) => {
+    const now = Date.now();
+    for (const [key, entry] of tickets) if (entry.expires < now) tickets.delete(key);
+    if (tickets.size > 10000) throw new HttpError(429, 'Too many pending live connections.');
+    const value = token();
+    tickets.set(hash(value), { sessionHash: request.sessionHash, expires: now + 30000 });
+    return { ticket: value };
+  });
   app.post(
     '/api/auth/register',
     { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },

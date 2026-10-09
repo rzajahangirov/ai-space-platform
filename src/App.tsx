@@ -39,7 +39,7 @@ import {
   BookOpen,
   Gavel,
 } from 'lucide-react';
-import { api, post, patch, ApiError } from './api';
+import { api, post, patch, ApiError, liveUrl } from './api';
 import {
   catalog,
   categories,
@@ -209,12 +209,23 @@ export default function App() {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
     let attempts = 0;
-    function connect() {
+    function retry() {
+      setConnection('reconnecting');
+      setPresence([]);
+      if (!stopped) timer = setTimeout(connect, Math.min(1000 * 2 ** attempts++, 15000));
+    }
+    async function connect() {
       if (stopped) return;
       setConnection('connecting');
-      const socket = new WebSocket(
-        `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/projects/${activeId}/live`,
-      );
+      let url: string;
+      try {
+        url = await liveUrl(activeId!);
+      } catch {
+        retry();
+        return;
+      }
+      if (stopped) return;
+      const socket = new WebSocket(url);
       ws.current = socket;
       socket.onopen = () => {
         attempts = 0;
@@ -230,14 +241,10 @@ export default function App() {
           /* Ignore unsupported server event. */
         }
       };
-      socket.onclose = () => {
-        setConnection('reconnecting');
-        setPresence([]);
-        if (!stopped) timer = setTimeout(connect, Math.min(1000 * 2 ** attempts++, 15000));
-      };
+      socket.onclose = retry;
       socket.onerror = () => socket.close();
     }
-    connect();
+    void connect();
     return () => {
       stopped = true;
       clearTimeout(timer);

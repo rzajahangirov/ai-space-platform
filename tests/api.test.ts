@@ -6,6 +6,7 @@ import { buildApp } from '../server/app';
 import { hash, uid } from '../server/core';
 import { ToolRegistry } from '../server/agents/tools';
 import { z } from 'zod';
+import { WebSocket } from 'ws';
 let db: DB, app: FastifyInstance, runtime: Awaited<ReturnType<typeof buildApp>>['runtime'];
 let ownerCookie: string,
   viewerCookie: string,
@@ -79,6 +80,47 @@ describe('authentication and tenancy', () => {
         headers: { cookie: ownerCookie, origin: 'https://attacker.test' },
       }),
     ).rejects.toThrow();
+  });
+  it('accepts a single-use live ticket in place of the session cookie', async () => {
+    const issue = async (cookie: string) =>
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/live-ticket',
+          headers: headers(cookie),
+          payload: {},
+        })
+      ).json().ticket as string;
+    // A real socket: injectWS has no remote address, which the rate limiter needs.
+    const address = await app.listen({ port: 0, host: '127.0.0.1' });
+    // Resolves with the server's first message, rejects when the upgrade is refused.
+    const live = (t: string) =>
+      new Promise<string>((resolve, reject) => {
+        const socket = new WebSocket(
+          `${address.replace('http', 'ws')}/api/projects/${projectId}/live?ticket=${encodeURIComponent(t)}`,
+          { headers: { origin: 'http://localhost:5173' } },
+        );
+        socket.once('message', (data) => {
+          socket.terminate();
+          resolve(data.toString());
+        });
+        socket.once('unexpected-response', (_req, res) => reject(new Error(`${res.statusCode}`)));
+        socket.once('error', reject);
+      });
+    const ticket = await issue(ownerCookie);
+    expect(await live(ticket)).toContain('"type"');
+    // Replay, forged tickets, and tickets for a project the user cannot read are all rejected.
+    await expect(live(ticket)).rejects.toThrow('401');
+    await expect(live('x'.repeat(43))).rejects.toThrow('401');
+    await expect(live(await issue(outsiderCookie))).rejects.toThrow('404');
+    // Tickets only work on the live channel, never as a general bearer token.
+    expect(
+      (
+        await app.inject({
+          url: `/api/projects?ticket=${encodeURIComponent(await issue(ownerCookie))}`,
+        })
+      ).statusCode,
+    ).toBe(401);
   });
   it('requires a session', async () =>
     expect((await app.inject({ url: '/api/projects' })).statusCode).toBe(401));

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import { z } from 'zod';
 import type { DB } from './db';
-import { authorize, hash, HttpError, originAllowed, uid } from './core';
+import { authorize, HttpError, originAllowed, uid } from './core';
 import type { Presence } from '../shared/domain';
 import { createClient } from 'redis';
 
@@ -136,7 +136,7 @@ export class RealtimeHub {
           void (async () => {
             const [session] = await db.query(
               'SELECT user_id FROM sessions WHERE token_hash=$1 AND expires_at>now()',
-              [hash(request.cookies.agentspace_session ?? '')],
+              [request.sessionHash],
             );
             if (!alive || !session) {
               socket.close(1008, 'Session expired');

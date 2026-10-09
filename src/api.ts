@@ -37,3 +37,23 @@ export const post = <T = any>(path: string, data: unknown) =>
   api<T>(path, { method: 'POST', body: JSON.stringify(data) });
 export const patch = <T = any>(path: string, data: unknown) =>
   api<T>(path, { method: 'PATCH', body: JSON.stringify(data) });
+
+let liveOrigin: Promise<string | null> | undefined;
+/**
+ * WebSocket URL for a project's live channel. Same-origin deployments use the session cookie;
+ * when the API runs on another origin, a single-use ticket replaces the cookie.
+ */
+export async function liveUrl(projectId: string) {
+  const path = `/api/projects/${encodeURIComponent(projectId)}/live`;
+  liveOrigin ??= api<{ liveOrigin?: string | null }>('/auth/config').then(
+    (c) => c.liveOrigin ?? null,
+    (e) => {
+      liveOrigin = undefined;
+      throw e;
+    },
+  );
+  const origin = await liveOrigin;
+  if (!origin) return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${path}`;
+  const { ticket } = await post<{ ticket: string }>('/live-ticket', {});
+  return `${origin.replace(/^http/, 'ws')}${path}?ticket=${encodeURIComponent(ticket)}`;
+}
