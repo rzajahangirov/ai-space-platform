@@ -238,3 +238,24 @@ test('a share link brings a teammate straight into a conversation, and chat is l
   await page.getByRole('button', { name: 'Close dialog' }).click();
   await second.close();
 });
+
+test('council page: node view, limits, and a clear error without model credentials', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await login(page);
+  await nav(page, /Council/);
+  await expect(page.getByRole('heading', { name: 'Council', exact: true })).toBeVisible();
+  await expect(page.getByText('No council sessions yet')).toBeVisible();
+  // The browser-test server has no model keys, so the session stops before any request is sent.
+  await page.getByRole('button', { name: 'Start council' }).click();
+  await expect(page.locator('.council-flow .council-node')).toHaveCount(9);
+  await expect(page.locator('.council-node').filter({ hasText: 'ChatGPT sandbox' })).toBeVisible();
+  await expect(page.locator('.council-node').filter({ hasText: 'Gemini sandbox' })).toBeVisible();
+  await expect(page.locator('.council-toolbar .badge')).toHaveText('Failed', { timeout: 15000 });
+  await expect(page.locator('.council-error')).toContainText('is not configured');
+  await expect(page.getByText('400 s', { exact: false }).first()).toBeVisible();
+  await expect(page.getByText('No decisions were produced.')).toBeVisible();
+  expect(errors).toEqual([]);
+});

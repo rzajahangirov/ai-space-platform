@@ -800,3 +800,218 @@
 .local-agents-notice .btn {
   flex-shrink: 0;
 }
+
+/* Agent council */
+.council-start {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.council-start input {
+  min-width: 260px;
+  flex: 1;
+  background: var(--input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+.council-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 4px 0 12px;
+}
+.council-toolbar select {
+  background: var(--input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 8px;
+  max-width: 100%;
+}
+.council-meters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.council-meter > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.council-meter b {
+  color: var(--text);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.council-meter-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel-alt);
+  overflow: hidden;
+}
+.council-meter-track i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s;
+}
+.council-meter-track i.hot {
+  background: var(--danger);
+}
+.council-flow {
+  height: 380px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--canvas);
+}
+.council-node {
+  width: 190px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+}
+.council-node-title {
+  font-weight: 600;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.council-node-sub {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.council-node-line {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.council-node.state-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+.council-node.state-done {
+  border-color: var(--accent);
+}
+.council-node.state-done .council-node-title::after {
+  content: '✓';
+  color: var(--accent);
+  margin-left: auto;
+}
+.council-node.state-error {
+  border-color: var(--danger);
+}
+.council-node.state-skipped {
+  opacity: 0.6;
+  border-style: dashed;
+}
+.council-error {
+  color: var(--danger);
+  margin: 8px 0;
+}
+.council-h2 {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
+  margin: 20px 0 10px;
+}
+.council-decision {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--panel);
+  margin-bottom: 10px;
+}
+.council-decision.status-pending_review {
+  border-color: #d6b25e;
+}
+.council-decision-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.council-decision h3 {
+  margin: 0;
+  font-size: 14px;
+  flex: 1 1 260px;
+}
+.council-decision p {
+  margin: 8px 0 0;
+}
+.council-votes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.council-votes .yes {
+  color: var(--text);
+}
+.council-votes .no {
+  color: var(--danger);
+}
+.council-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.council-timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.council-timeline li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--panel);
+  flex-wrap: wrap;
+}
+.council-timeline .room {
+  min-width: 64px;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+.council-timeline .summary {
+  color: var(--muted);
+  flex: 1 1 300px;
+  min-width: 0;
+}
+.council-timeline li.room-shared {
+  border-left: 2px solid var(--accent);
+}
+.council-flow .react-flow__edge-textbg {
+  fill: var(--panel);
+}
+.council-flow .react-flow__edge-text {
+  fill: var(--muted);
+  font-size: 10px;
+}
+.council-flow .react-flow__edge-path {
+  stroke: var(--border);
+}
+.council-flow .react-flow__edge.animated .react-flow__edge-path {
+  stroke: var(--accent);
+}

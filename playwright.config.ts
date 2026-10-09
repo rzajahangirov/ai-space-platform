@@ -17,7 +17,13 @@ export default defineConfig({
     timeout: 60000,
     gracefulShutdown: { signal: 'SIGTERM', timeout: 5000 },
     // Browser tests use deterministic local agents, never the developer's model credentials.
-    env: { OPENAI_API_KEY: '' },
+    env: {
+      OPENAI_API_KEY: '',
+      ANTHROPIC_API_KEY: '',
+      GOOGLE_API_KEY: '',
+      LANGSMITH_TRACING: 'false',
+      REDIS_URL: '',
+    },
   },
   reporter: [['list']],
 });

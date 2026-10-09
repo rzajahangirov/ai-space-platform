@@ -37,6 +37,7 @@ import {
   Radar,
   MessagesSquare,
   BookOpen,
+  Gavel,
 } from 'lucide-react';
 import { api, post, patch, ApiError } from './api';
 import {
@@ -67,6 +68,7 @@ import {
 import { DiscoveryImport, InboxPanel, ObservePanel } from './components/Observe';
 import { ArtifactsPage, ConversationsPage, RoomDrawer } from './components/Conversations';
 import { AcceptInvite, InviteModal } from './components/Invite';
+import { CouncilPage } from './components/Council';
 
 type User = { id: string; name: string; email: string };
 const navigation = [
@@ -75,6 +77,7 @@ const navigation = [
   ['Architecture', Workflow],
   ['Observe', Radar],
   ['Agents', Bot],
+  ['Council', Gavel],
   ['Review tasks', Check],
   ['Artifacts', BookOpen],
   ['Knowledge', FileText],
@@ -899,6 +902,7 @@ export default function App() {
               {page === 'Review tasks' && <TasksPanel data={data} />}{' '}
               {page === 'History' && <VersionsPanel data={data} onMutation={canvasMutation} />}{' '}
               {page === 'Knowledge' && <KnowledgePanel {...common} />}{' '}
+              {page === 'Council' && <CouncilPage {...common} />}{' '}
               {page === 'Artifacts' && (
                 <ArtifactsPage
                   data={data}
