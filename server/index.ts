@@ -1,9 +1,12 @@
 import 'dotenv/config';
 import { connectDatabase, migrate } from './db';
+import { seedDemo } from './db/seed';
 import { buildApp } from './app';
 import { closeCache } from './agents/cache';
 const db = await connectDatabase();
 await migrate(db);
+// For hosts without a shell (e.g. Render free tier). Idempotent; production still requires DEMO_PASSWORD.
+if (process.env.SEED_DEMO === 'on') await seedDemo(db);
 const { app } = await buildApp(db);
 await app.listen({
   port: Number(process.env.PORT) || 3001,
