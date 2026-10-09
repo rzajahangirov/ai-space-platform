@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: agentspace
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: agentspace
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U agentspace']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  app:
+    build: .
+    environment:
+      # Local Docker preview uses HTTP. Production must set NODE_ENV=production and HTTPS APP_ORIGIN.
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: postgresql://agentspace:${POSTGRES_PASSWORD}@db:5432/agentspace
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3001}
+      HOST: 0.0.0.0
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      MODEL_PRICES_JSON: ${MODEL_PRICES_JSON:-}
+    ports:
+      - '127.0.0.1:3001:3001'
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  postgres_data:
