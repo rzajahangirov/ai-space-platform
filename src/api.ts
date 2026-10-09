@@ -17,8 +17,20 @@ export async function api<T = any>(path: string, options: RequestInit = {}): Pro
       ...options.headers,
     },
   });
-  const data = await response.json();
-  if (!response.ok) throw new ApiError(data.error ?? 'Request failed.', response.status);
+  // A proxy or host error page (HTML/plain text) must surface as a readable error, not a JSON SyntaxError.
+  const data = response.headers.get('content-type')?.includes('application/json')
+    ? await response.json()
+    : null;
+  if (!response.ok)
+    throw new ApiError(
+      data?.error ??
+        (response.status >= 500 || response.status === 404
+          ? 'The server is unavailable. Please try again in a minute.'
+          : 'Request failed.'),
+      response.status,
+    );
+  if (data === null)
+    throw new ApiError('The server returned an unexpected response.', response.status);
   return data;
 }
 export const post = <T = any>(path: string, data: unknown) =>
