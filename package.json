@@ -1,0 +1,59 @@
+{
+  "name": "agentspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"tsx watch server/index.ts\" \"vite --host 127.0.0.1\"",
+    "build": "tsc --noEmit && vite build",
+    "start": "tsx server/index.ts",
+    "db:migrate": "tsx server/db/migrate.ts",
+    "db:seed": "tsx server/db/seed-cli.ts",
+    "test": "vitest run",
+    "test:e2e": "npm run build && playwright test",
+    "check": "tsc --noEmit",
+    "verify": "npm run check && npm test && npm run build",
+    "format": "prettier --write src server shared tests scripts docs *.ts *.json *.yaml README.md",
+    "format:check": "prettier --check src server shared tests scripts docs *.ts *.json *.yaml README.md"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@fastify/cookie": "11.1.2",
+    "@fastify/helmet": "13.1.1",
+    "@fastify/rate-limit": "11.2.0",
+    "@fastify/static": "10.1.5",
+    "@fastify/websocket": "11.3.3",
+    "@tanstack/react-query": "5.104.1",
+    "@xyflow/react": "12.12.0",
+    "dotenv": "18.0.5",
+    "fastify": "5.12.5",
+    "lucide-react": "1.51.0",
+    "openid-client": "6.8.8",
+    "pg": "8.23.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "ws": "8.22.0",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.6.4",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/ws": "8.18.2",
+    "@vitejs/plugin-react": "6.1.1",
+    "concurrently": "10.0.5",
+    "prettier": "3.9.9",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.2",
+    "vitest": "5.0.3"
+  }
+}
