@@ -35,6 +35,9 @@ All routes are under `/api`. JSON mutations require `X-AgentSpace-Request: 1`. B
 | `POST /projects/:id/reviews`                                            | Creates a review conversation and run; returns `conversationId`                                                          |
 | `GET/POST /projects/:id/artifacts`, `GET/PATCH .../:artifactId`         | Markdown documents; PATCH requires the current `revision` (409 if stale)                                                 |
 | `POST /projects/:id/agents/model`                                       | `{ provider, model }` for every agent in the project (owners/admins)                                                     |
+| `GET/POST /projects/:id/council`                                        | Council settings and sessions; POST `{ topic? }` starts one (reviewers+; one running per project, otherwise 409)         |
+| `GET /projects/:id/council/:sessionId`                                  | One session with its room timeline and decisions                                                                         |
+| `POST /projects/:id/council/decisions/:decisionId`                      | `{ decision: "approved" or "rejected", note? }` for a decision waiting for senior review (owners/admins)                 |
 
 Discovery accepts `docker-compose.yml`, `package.json`, and `requirements.txt` (200 KB max, 20 requests/minute). Environment values are inspected for host names only and never stored or returned.
 

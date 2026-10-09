@@ -76,27 +76,41 @@ To show estimated cost, set `MODEL_PRICES_JSON` using your provider's current pe
 
 Those numbers illustrate the configuration format, not actual provider pricing. Missing prices display as unknown rather than as free. Provider billing remains authoritative.
 
+## Agent council (ChatGPT + Gemini)
+
+The **Council** page lets ChatGPT and Gemini review the architecture together. Each model works in its own sandbox room: it sees only a frozen, read-only architecture snapshot and read-only search results from the project's Documents and Knowledge (RAG with OpenAI embeddings, keyword ranking as fallback). It cannot change the graph, call tools, or reach anything except its own model endpoint. The rooms exchange opinions only through a logged channel and propose candidate decisions; the chair merges them into at most five, and both seats vote.
+
+A session is limited to `COUNCIL_TIME_LIMIT_SECONDS` (400) from the moment the rooms are locked and to `COUNCIL_TOKEN_LIMIT` (64,000) model tokens shared by both seats. Every call is checked against both limits before it is sent. Decisions follow the **4-of-5 rule**: at most four of five decisions, and only unanimous ones, are accepted automatically; the lowest-ranked decision and every non-unanimous one wait for a senior review by a project owner or admin. Decisions are recorded as an ADR document and do not change the architecture graph. `npx tsx scripts/council-live.ts` runs one real session from the terminal (it makes paid model calls).
+
+## Response cache and monitoring
+
+With `REDIS_URL` set, identical model requests reuse the stored answer for `AGENT_CACHE_TTL_SECONDS` (900 = 15 minutes) and report no tokens; after that the model answers again. Redis errors fall through to the provider. `npm run bench:cache` compares latency with and without the cache (`npm run bench:cache -- --simulate 2000` uses a fake provider and costs nothing).
+
+With `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY`, every council session becomes one LangSmith trace (each step and model call nested, with token usage), and regular agent model calls are traced too. Traces contain truncated prompts and answers, so enable tracing only for a LangSmith project that may receive project content.
+
 ## PostgreSQL and Docker
 
 Set `DATABASE_URL` to use standard PostgreSQL. Migrations use parameterized SQL through `pg`; the same schema runs on local PGlite. Production mode refuses embedded storage and HTTP origins.
 
-For a local Docker preview, put these values in `.env` (use your own password with URL-safe characters):
+For a local Docker preview, put these values in `.env` (use your own passwords with URL-safe characters):
 
 ```dotenv
 POSTGRES_PASSWORD=replace-with-a-long-random-password
-APP_ORIGIN=http://localhost:3001
+REPLICATION_PASSWORD=replace-with-another-long-random-password
+APP_ORIGIN=http://localhost:8080
 NODE_ENV=development
 DEMO_PASSWORD=choose-a-private-demo-password
 ```
 
 ```sh
 docker compose up --build -d
-docker compose exec app npm run db:seed
+docker compose exec worker npm run db:seed
+docker compose up -d --scale app=4   # optional: more API replicas
 ```
 
-Open **http://localhost:3001**. The backend serves the built frontend. The database is not exposed on a host port. Docker was supplied but could not be executed in the implementation environment because Docker was not installed.
+Open **http://localhost:8080**. Compose starts an nginx load balancer, stateless API replicas (`app`), one agent worker (`worker`), a PostgreSQL primary with a streaming read replica, and Redis. Only the load balancer has a host port. Docker was not installed in the implementation environment, so the Compose setup itself has not been executed; the same topology was load-tested with local processes (see [operations](docs/operations.md)).
 
-For a shared deployment, use PostgreSQL, one application replica, `NODE_ENV=production`, an HTTPS `APP_ORIGIN`, and an HTTPS reverse proxy forwarding WebSocket upgrades. The image runs as an unprivileged user. Do not seed shared installations with the public local password. Configure backup/restore, retention, provider budgets, and your identity provider before granting access. See [operations](docs/operations.md) and [security](docs/security.md).
+For a shared deployment, use PostgreSQL, `NODE_ENV=production`, an HTTPS `APP_ORIGIN`, a TLS-terminating proxy that forwards WebSocket upgrades, and `TRUST_PROXY=true` only behind that proxy. The image runs as an unprivileged user. Do not seed shared installations with the public local password. Configure backup/restore, retention, provider budgets, and your identity provider before granting access. See [operations](docs/operations.md) and [security](docs/security.md).
 
 ## Verify
 
@@ -123,23 +137,31 @@ server/agents/            Provider adapters, tools, context, bounded orchestrati
 server/discovery.ts       Manifest discovery and designed-vs-observed drift
 server/mentions.ts        @mention resolution and inbox notifications
 server/routes-observe.ts  Discovery and observation APIs
-server/db/                PostgreSQL adapter, SQL migrations, demo seed
+server/council/           Agent council: sandboxed seats, RAG, limits, 4-of-5 triage
+server/routes-council.ts  Council sessions and senior review APIs
+server/agents/cache.ts    Redis response cache for model calls
+server/tracing.ts         LangSmith tracing
+server/snapshot-cache.ts  Short-lived shared project snapshot cache
+server/lb.ts              Local load balancer for several API instances
+server/db/                PostgreSQL adapter (primary + read replica), SQL migrations, demo seed
 shared/domain.ts          Runtime schemas and shared TypeScript contracts
-tests/                    Permission, API, graph, agent, and browser tests
+tests/                    Permission, API, graph, agent, council, cache, and browser tests
+scripts/                  Browser-test server, cache benchmark, load test, live council run
+deploy/                   nginx load balancer and PostgreSQL replica configuration
 docs/                     Architecture decisions, API, operations, security
-Dockerfile / compose.yaml Container setup with PostgreSQL
+Dockerfile / compose.yaml Containers: load balancer, API replicas, worker, PostgreSQL primary + replica, Redis
 ```
 
 ## Deliberate MVP boundaries
 
 This is a locally runnable engineering MVP with production-oriented boundaries, not a claim that the entire 54-part roadmap is finished or independently security-audited.
 
-- One application instance owns presence and the worker. Horizontal replicas require distributed presence, event fan-out, run leases, and distributed throttling.
+- Several API instances can run behind a load balancer: realtime invalidations fan out through Redis, and exactly one instance runs the agent worker (`AGENT_WORKER=off` on the others). Presence and rate limits are still per instance, and there are no worker leases, so never run two workers.
 - Architecture edits use authoritative revision-checked transactions. Offline editing, CRDT text collaboration, per-view layout overrides, and architecture branches/scenarios are future work.
 - GitHub repository scanning, live (non-manifest) drift, deployment/cloud/database connectors, observed telemetry, S3 uploads, external MCP transport execution, and destructive external tools are not connected. Repository mapping tables and the tool contract establish the extension points. Graph JSON imports work today.
 - The tool registry publishes MCP-compatible descriptors, but is not itself a complete MCP server/client. `APPROVAL_REQUIRED` tools fail closed until an approved execution workflow is implemented.
 - OIDC integration is implemented but needs validation against your configured identity provider. Local password login has no email delivery, password reset, MFA, or account recovery flow; prefer OIDC for shared installations.
-- Context retrieval is bounded graph-neighborhood/metadata/recency retrieval. Embeddings and semantic search are deferred. Knowledge is plain text, not executable HTML or arbitrary React.
+- Agent context retrieval is bounded graph-neighborhood/metadata/recency retrieval. Only the council uses embeddings (computed per session, never stored); a persistent vector index is future work. Knowledge is plain text, not executable HTML or arbitrary React.
 - Review tasks and an in-app inbox are implemented; a general task board, email/push delivery, `@team` mentions, scenario comparison, and marketplace sharing are future work.
 - Discovery is static analysis of manifests, not repository code scanning or runtime telemetry. Matching uses explicit `composeService`/`packageName` config, then names, then technology for infrastructure only.
 

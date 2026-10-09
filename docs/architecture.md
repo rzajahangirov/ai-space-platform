@@ -54,7 +54,7 @@ An entire-project revision favors correctness over throughput for the MVP. Indep
 
 Yjs/CRDTs are valuable for shared text, transient drag positions, or offline collaboration. Applying arbitrary concurrent CRDT operations directly to an authorization-sensitive relational graph would still require validation of deleted endpoints, proposal preconditions, and role changes. The MVP therefore uses authoritative commits and treats presence/selection/cursors as transient non-authoritative state. Offline writes are not supported.
 
-Snapshot reads hold a share lock on the project while reading graph rows and revision, avoiding mixed graph versions. A crash after commit cannot lose the audit/version. The outbox broadcasts at least once; client invalidation is idempotent. A server restart explicitly fails interrupted runs instead of silently repeating potentially billable calls.
+Snapshot reads run in one REPEATABLE READ READ ONLY transaction, so graph rows and the revision come from the same database snapshot and never mix versions. A crash after commit cannot lose the audit/version. The outbox broadcasts at least once; client invalidation is idempotent. A server restart explicitly fails interrupted runs instead of silently repeating potentially billable calls.
 
 ## Agent orchestration
 
@@ -95,6 +95,18 @@ Observe mode treats a deployment manifest as the observed system. `server/discov
 ## Proposal preconditions
 
 Approval checks the human role, locks the project then proposal in a consistent order, verifies `PENDING` and the exact base revision, applies changes, persists before/after snapshots, and records the approving human in the same transaction. Duplicate approvals and stale proposals return `409`. A stale proposal can be rejected and regenerated against current context. Automatic rebasing is deliberately deferred because it can change the meaning of a reviewed decision.
+
+## Agent council
+
+A council session runs two model seats, ChatGPT and Gemini, in isolated sandbox rooms. Each room gets a frozen architecture snapshot and, when the project has documents, its own top-four RAG excerpts from Documents and Knowledge (OpenAI embeddings computed per session; keyword ranking when embeddings are unavailable). The phases are: independent opinion, document retrieval, consultation through the shared channel (the only link between rooms), a merge of at most five decisions by the chair, and a vote by both seats. Every model call is bounded by the session deadline (default 400 s) and a shared token budget (default 64,000) checked before the call, and prompts ask for short answers. Every room event is persisted in `council_events`.
+
+Triage applies the 4-of-5 rule: at most `floor(n × 4/5)` decisions are accepted automatically, only unanimous decisions qualify, and they are ranked by approval confidence weighted by risk. The rest wait for an owner or admin. A session that reaches a limit keeps its partial work and sends all of it to review. The outcome is written as an ADR artifact, so later sessions retrieve it like any other document.
+
+## Response cache, tracing, and scaling
+
+Remote model calls pass through a Redis cache keyed by a SHA-256 of the complete request (15-minute TTL; local rules are not cached). LangSmith tracing wraps council sessions and model calls when enabled.
+
+Several stateless API instances can run behind a load balancer, with one worker instance. Invalidations fan out through Redis pub/sub. Reads that only need a consistent snapshot use `DB.readOnly`: a REPEATABLE READ READ ONLY transaction on the read replica when the replica has replayed the primary's current WAL position, otherwise on the primary. Snapshot reads are also shared per project for up to one second (single flight, invalidated by every write before its response is sent). Write consistency is unchanged: graph mutations and approvals still lock and revision-check on the primary.
 
 ## Extension sequence
 
