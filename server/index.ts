@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { connectDatabase, migrate } from './db';
 import { buildApp } from './app';
+import { closeCache } from './agents/cache';
 const db = await connectDatabase();
 await migrate(db);
 const { app } = await buildApp(db);
@@ -15,6 +16,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const)
     closing = true;
     void app
       .close()
+      .then(() => closeCache())
       .then(() => db.close())
       .then(() => process.exit(0));
   });

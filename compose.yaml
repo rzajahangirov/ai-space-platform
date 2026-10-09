@@ -13,6 +13,26 @@ services:
       timeout: 5s
       retries: 20
     restart: unless-stopped
+  redis:
+    image: redis:8-alpine
+    command:
+      [
+        'redis-server',
+        '--save',
+        '',
+        '--appendonly',
+        'no',
+        '--maxmemory',
+        '256mb',
+        '--maxmemory-policy',
+        'allkeys-lru',
+      ]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
   app:
     build: .
     environment:
@@ -28,11 +48,15 @@ services:
       OIDC_ISSUER: ${OIDC_ISSUER:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      REDIS_URL: redis://redis:6379
+      AGENT_CACHE_TTL_SECONDS: ${AGENT_CACHE_TTL_SECONDS:-900}
       MODEL_PRICES_JSON: ${MODEL_PRICES_JSON:-}
     ports:
       - '127.0.0.1:3001:3001'
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 volumes:

@@ -1,5 +1,7 @@
 // Tool-calling ("agentic") model adapters. A step sends the transcript and tools and returns either
 // tool calls or final text. Provider-specific output items are replayed verbatim on the next step.
+import { CachedAgenticProvider } from './cache';
+
 export interface FunctionTool {
   name: string;
   description: string;
@@ -112,7 +114,7 @@ export class OpenAIAgenticProvider implements AgenticProvider {
 
 const agentic: Record<string, AgenticProvider> = { openai: new OpenAIAgenticProvider() };
 export function agenticProviderFor(name: string): AgenticProvider | undefined {
-  return agentic[name];
+  return agentic[name] && new CachedAgenticProvider(name, agentic[name]);
 }
 /** Test hook: replace an adapter (e.g. with a scripted fake). */
 export function setAgenticProvider(name: string, provider: AgenticProvider | undefined) {

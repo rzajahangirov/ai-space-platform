@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { portableSchema } from './tools';
+import { CachedProvider } from './cache';
 import { agentOutputSchema, type AgentOutput, type Agent, type Graph } from '../../shared/domain';
 
 export interface AgentContext {
@@ -282,7 +283,8 @@ const providers: Record<string, LLMProvider> = {
   anthropic: new AnthropicProvider(),
   google: new GoogleProvider(),
 };
-export function providerFor(name: string) {
+export function providerFor(name: string): LLMProvider {
   if (!providers[name]) throw new Error('Unsupported provider.');
-  return providers[name];
+  // Local rules are instant and free, so only remote model calls go through the Redis cache.
+  return name === 'local' ? providers[name] : new CachedProvider(name, providers[name]);
 }
