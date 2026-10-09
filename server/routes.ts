@@ -12,6 +12,7 @@ import { notify, projectParticipants, resolveMentions } from './mentions';
 import { registerObserveRoutes } from './routes-observe';
 import { registerConversationRoutes } from './routes-conversations';
 import { registerInviteRoutes } from './routes-invites';
+import { registerCouncilRoutes } from './routes-council';
 import { grantStandardTools } from './agents/defaults';
 const pid = (r: FastifyRequest) => (r.params as { id: string }).id;
 const text = z.string().trim().min(1).max(4000);
@@ -76,6 +77,7 @@ export function registerRoutes(app: FastifyInstance, db: DB, hub: RealtimeHub, o
   registerObserveRoutes(app, db, hub);
   registerConversationRoutes(app, db, hub);
   registerInviteRoutes(app, db, hub, origin);
+  registerCouncilRoutes(app, db, hub);
   app.get('/api/projects/:id/snapshot', async (request) =>
     db.transaction(async (tx) => {
       const id = pid(request),

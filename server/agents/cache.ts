@@ -8,6 +8,7 @@ import { createClient } from 'redis';
 import type { Agent } from '../../shared/domain';
 import type { AgentContext, LLMProvider, ProviderResult } from './providers';
 import type { AgentStep, AgenticProvider, StepRequest } from './agentic';
+import { traceLLM } from '../tracing';
 
 type Client = ReturnType<typeof createClient>;
 let client: Client | undefined;
@@ -98,7 +99,13 @@ export class CachedProvider implements LLMProvider {
     });
   }
   generate(agent: Agent, context: AgentContext): Promise<ProviderResult> {
-    return cached(this.keyFor(agent, context), () => this.inner.generate(agent, context));
+    return traceLLM(
+      `${this.name}:${agent.name}`,
+      { ls_provider: this.name, ls_model_name: agent.model, agent: agent.name, role: agent.role },
+      { prompt: context.prompt, revision: context.revision },
+      () => cached(this.keyFor(agent, context), () => this.inner.generate(agent, context)),
+      (r) => ({ message: r.output.message, findings: r.output.findings.length, cache: lastStatus }),
+    );
   }
 }
 
@@ -108,7 +115,13 @@ export class CachedAgenticProvider implements AgenticProvider {
     private inner: AgenticProvider,
   ) {}
   step(request: StepRequest): Promise<AgentStep> {
-    return cached(cacheKey(`step:${this.name}`, request), () => this.inner.step(request));
+    return traceLLM(
+      `${this.name}:step`,
+      { ls_provider: this.name, ls_model_name: request.model },
+      { lastInput: request.input.at(-1), tools: request.tools.map((t) => t.name) },
+      () => cached(cacheKey(`step:${this.name}`, request), () => this.inner.step(request)),
+      (r) => ({ text: r.text, calls: r.calls.map((c) => c.name), cache: lastStatus }),
+    );
   }
   toolResult(...args: Parameters<AgenticProvider['toolResult']>) {
     return this.inner.toolResult(...args);
