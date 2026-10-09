@@ -22,3 +22,9 @@ Shutdown closes WebSockets and stops scheduling new work, then waits for the cur
 Retention is not automated in this MVP. Establish policies for sessions, used/expired invitations, agent usage, event outbox, audit logs, graph snapshots, and project messages. Keep approval records and the versions they reference for the required audit window. Expose deletion only through a separately authorized, tested workflow.
 
 Docker cannot be claimed verified unless you run it on a Docker-enabled host. Local integration tests use the PostgreSQL-compatible PGlite engine; run the same critical paths against your deployment's PostgreSQL server as part of staging acceptance. OIDC and real LLM providers need credentialed integration tests before shared rollout. Unit, integration, and browser tests never call model providers or LangSmith; the browser-test server clears their credentials.
+
+## Hosted demo: Vercel frontend + Render API
+
+The demo runs the static frontend on Vercel and a single API instance (Docker) on Render with Render Postgres. `vercel.json` proxies `/api/*` to Render, so the session cookie stays first-party on the Vercel origin. WebSockets cannot pass through that proxy; the browser connects to the Render origin directly with a single-use live ticket (see [security](security.md)).
+
+Render API environment: `NODE_ENV=production`, `APP_ORIGIN` (the Vercel URL), `LIVE_ORIGIN` (the Render URL), `TRUST_PROXY=true`, `DATABASE_URL` (Render internal URL), `SEED_DEMO=on` with a private `DEMO_PASSWORD`, plus provider and LangSmith keys as needed. Free Render services sleep after 15 idle minutes (about a minute to wake) and free Render Postgres expires after 30 days; open the site shortly before a demo.
