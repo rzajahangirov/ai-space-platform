@@ -6,8 +6,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://ai-space-platform-api.onrender.com/api/:path*"
+      "destination": "https://agentspace-meta-api.onrender.com/api/:path*"
     },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }

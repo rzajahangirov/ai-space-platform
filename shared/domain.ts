@@ -337,7 +337,7 @@ export interface Presence {
   cursor?: { x: number; y: number };
 }
 export interface Snapshot {
-  availableProviders?: { openai: boolean; anthropic: boolean; google: boolean };
+  availableProviders?: { meta?: boolean; openai: boolean; anthropic: boolean; google: boolean };
   defaultModel?: string;
   project: Project;
   graph: Graph;

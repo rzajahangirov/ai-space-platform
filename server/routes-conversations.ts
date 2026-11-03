@@ -346,7 +346,7 @@ export function registerConversationRoutes(app: FastifyInstance, db: DB, hub: Re
     await authorize(db, request.actor, projectId, 'manage');
     const data = z
       .object({
-        provider: z.enum(['local', 'openai', 'anthropic', 'google']),
+        provider: z.enum(['local', 'openai', 'anthropic', 'google', 'meta']),
         model: z.string().trim().min(1).max(100),
       })
       .strict()

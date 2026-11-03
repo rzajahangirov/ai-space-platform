@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   OpenAIProvider,
+  MetaProvider,
   AnthropicProvider,
   GoogleProvider,
   portableSchema,
@@ -131,5 +132,85 @@ describe('provider contracts', () => {
     expect(fetchMock.mock.calls[0][0]).toBe(
       'https://generativelanguage.googleapis.com/v1beta/models/configured-model:generateContent',
     );
+  });
+});
+
+describe('Meta provider', () => {
+  const meta = { ...agent, provider: 'meta', model: 'muse-spark-1.3' };
+  it('calls Meta directly with a strict schema and validates its output', async () => {
+    vi.stubEnv('MODEL_API_KEY', 'test-only');
+    const mock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(output) } }],
+          usage: { prompt_tokens: 10, completion_tokens: 20 },
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', mock);
+    const result = await new MetaProvider().generate(meta, context);
+    expect(result.output).toEqual(output);
+    expect(result.inputTokens).toBe(10);
+    expect(mock.mock.calls[0][0]).toBe('https://api.meta.ai/v1/chat/completions');
+    const body = JSON.parse(mock.mock.calls[0][1].body);
+    expect(body.model).toBe('muse-spark-1.3');
+    expect(body.response_format.json_schema.strict).toBe(true);
+  });
+  it('fails before fetching when the key is missing', async () => {
+    vi.stubEnv('MODEL_API_KEY', '');
+    const mock = vi.fn();
+    vi.stubGlobal('fetch', mock);
+    await expect(new MetaProvider().generate(meta, context)).rejects.toThrow('MODEL_API_KEY');
+    expect(mock).not.toHaveBeenCalled();
+  });
+  it.each(['length', 'content_filter', 'stop'])(
+    'rejects incomplete or invalid output (%s)',
+    async (reason) => {
+      vi.stubEnv('MODEL_API_KEY', 'test-only');
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              choices: [{ finish_reason: reason, message: { content: '{}' } }],
+            }),
+          ),
+        ),
+      );
+      await expect(new MetaProvider().generate(meta, context)).rejects.toThrow();
+    },
+  );
+  it('does not leak provider failure bodies or fall back to local rules', async () => {
+    vi.stubEnv('MODEL_API_KEY', 'test-only');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('secret upstream content', { status: 429 })),
+    );
+    await expect(new MetaProvider().generate(meta, context)).rejects.toThrow(
+      'Provider request failed (429)',
+    );
+  });
+  it('routes eligible Meta Muse models via OpenRouter when OPENROUTER_API_KEY is configured and rejects non-Muse models', async () => {
+    vi.stubEnv('MODEL_API_KEY', '');
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-or-v1-test');
+    const mock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          provider: 'Meta',
+          model: 'meta/muse-spark-1.3',
+          choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(output) } }],
+          usage: { prompt_tokens: 12, completion_tokens: 24 },
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', mock);
+    const result = await new MetaProvider().generate(meta, context);
+    expect(mock.mock.calls[0][0]).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(JSON.parse(mock.mock.calls[0][1].body).model).toBe('meta/muse-spark-1.3');
+    expect(result.upstreamProvider).toBe('Meta');
+    expect(result.model).toBe('meta/muse-spark-1.3');
+    await expect(
+      new MetaProvider().generate({ ...meta, model: 'gpt-5.5' }, context),
+    ).rejects.toThrow('Meta Muse model');
   });
 });

@@ -108,6 +108,7 @@ export default function App() {
     [inviteConversation, setInviteConversation] = useState<{ id: string; title: string } | null>(
       null,
     );
+  const [navigationProject, setNavigationProject] = useState<string | null>(null);
   const ws = useRef<WebSocket | null>(null);
   // A conversation to open once a newly created project becomes active.
   const pendingConversation = useRef<string | null>(null);
@@ -192,10 +193,30 @@ export default function App() {
     return () => window.removeEventListener('keydown', key);
   }, []);
   useEffect(() => {
-    setViewId('');
-    setSelected(null);
-    setConversationId(pendingConversation.current);
-    if (pendingConversation.current) setPage('Conversations');
+    if (!activeId || !me.data) return;
+    let saved: Record<string, unknown> = {};
+    try {
+      saved =
+        JSON.parse(
+          sessionStorage.getItem(`agentspace-nav:${me.data.user.id}:${activeId}`) || '{}',
+        ) || {};
+    } catch {
+      /* A malformed browser preference must not prevent sign-in. */
+    }
+    setPage(
+      pendingConversation.current
+        ? 'Conversations'
+        : navigation.some(([name]) => name === saved.page)
+          ? String(saved.page)
+          : 'Architecture',
+    );
+    setViewId(typeof saved.viewId === 'string' ? saved.viewId : '');
+    setSelected(typeof saved.selected === 'string' ? saved.selected : null);
+    setConversationId(
+      pendingConversation.current ??
+        (typeof saved.conversationId === 'string' ? saved.conversationId : null),
+    );
+    setNavigationProject(activeId);
     pendingConversation.current = null;
     setArtifactId(null);
     setUndoStack([]);
@@ -203,7 +224,14 @@ export default function App() {
     localRevision.current = null;
     observedRevision.current = null;
     if (activeId) localStorage.setItem('agentspace-project', activeId);
-  }, [activeId]);
+  }, [activeId, me.data?.user.id]);
+  useEffect(() => {
+    if (!activeId || !me.data || navigationProject !== activeId) return;
+    sessionStorage.setItem(
+      `agentspace-nav:${me.data.user.id}:${activeId}`,
+      JSON.stringify({ page, viewId, selected, conversationId }),
+    );
+  }, [activeId, me.data?.user.id, navigationProject, page, viewId, selected, conversationId]);
   useEffect(() => {
     if (!activeId || !me.data) return;
     let stopped = false;
@@ -1297,16 +1325,18 @@ function AuthScreen({ onSignedIn, invite }: { onSignedIn: () => void; invite: bo
             {register ? 'Sign in' : 'Create account'}
           </button>
         </p>
-        <div className="local-demo-note">
-          <Box size={17} />
-          <div>
-            <strong>Exploring locally?</strong>
-            <p>
-              Seed ShopSphere with <code>npm run db:seed</code>, then use the demo credentials in
-              the README.
-            </p>
+        {import.meta.env.DEV && (
+          <div className="local-demo-note">
+            <Box size={17} />
+            <div>
+              <strong>Exploring locally?</strong>
+              <p>
+                Seed ShopSphere with <code>npm run db:seed</code>, then use the demo credentials in
+                the README.
+              </p>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

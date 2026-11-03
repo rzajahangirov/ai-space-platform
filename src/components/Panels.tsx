@@ -165,11 +165,17 @@ function ModelRouting({ data, refresh, notify }: Common) {
         onChange={(e) => {
           setProvider(e.target.value);
           setModel(
-            e.target.value === 'local' ? 'rules-v1' : e.target.value === 'openai' ? 'gpt-5.5' : '',
+            e.target.value === 'meta'
+              ? 'muse-spark-1.3'
+              : e.target.value === 'local'
+                ? 'rules-v1'
+                : e.target.value === 'openai'
+                  ? 'gpt-5.5'
+                  : '',
           );
         }}
       >
-        {['openai', 'local', 'anthropic', 'google'].map((p) => (
+        {['openai', 'local', 'anthropic', 'google', 'meta'].map((p) => (
           <option key={p}>{p}</option>
         ))}
       </select>
@@ -285,11 +291,16 @@ function AgentEditor({
                 setForm({
                   ...form,
                   provider: e.target.value,
-                  model: e.target.value === 'local' ? 'rules-v1' : '',
+                  model:
+                    e.target.value === 'meta'
+                      ? 'muse-spark-1.3'
+                      : e.target.value === 'local'
+                        ? 'rules-v1'
+                        : '',
                 })
               }
             >
-              {['local', 'openai', 'anthropic', 'google'].map((p) => (
+              {['local', 'openai', 'anthropic', 'google', 'meta'].map((p) => (
                 <option key={p}>{p}</option>
               ))}
             </select>

@@ -6,6 +6,6 @@ export default defineConfig({
     hookTimeout: 60000,
     fileParallelism: false,
     // Tests never call real model providers; agents fall back to the deterministic local engine.
-    env: { OPENAI_API_KEY: '', LIVE_REVIEW: 'on' },
+    env: { MODEL_API_KEY: '', OPENROUTER_API_KEY: '', OPENAI_API_KEY: '', LIVE_REVIEW: 'on' },
   },
 });

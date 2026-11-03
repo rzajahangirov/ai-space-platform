@@ -879,14 +879,7 @@ export class AgentRuntime {
     const componentIds = new Set(context.graph.components.map((c) => c.id));
     if (
       output.findings.some((f) => f.componentId && !componentIds.has(f.componentId)) ||
-      output.proposals.some((p) => !componentIds.has(p.componentId)) ||
-      output.additions.some((a) =>
-        a.connections.some(
-          (c) =>
-            (c.from !== NEW_COMPONENT && !componentIds.has(c.from)) ||
-            (c.to !== NEW_COMPONENT && !componentIds.has(c.to)),
-        ),
-      )
+      output.proposals.some((p) => !componentIds.has(p.componentId))
     )
       throw new Error(
         'Agent referenced a component outside its retrieved context. Output rejected.',
@@ -966,6 +959,18 @@ export class AgentRuntime {
         const current = await readGraph(tx, run.project_id);
         for (const a of output.additions) {
           if (await pendingTitle(a.title)) continue;
+          if (
+            a.connections.some(
+              (c) =>
+                (c.from !== NEW_COMPONENT && !componentIds.has(c.from)) ||
+                (c.to !== NEW_COMPONENT && !componentIds.has(c.to)),
+            )
+          ) {
+            rejected.push(
+              `${a.title}: A connection references a component outside the retrieved context.`,
+            );
+            continue;
+          }
           const built = additionMutations(current, a, uid());
           if ('error' in built) {
             rejected.push(`${a.title}: ${built.error}`);
@@ -987,6 +992,10 @@ export class AgentRuntime {
             rejected,
           },
         );
+      await tx.query(
+        'UPDATE agent_runs SET input_tokens=input_tokens+$1,output_tokens=output_tokens+$2 WHERE id=$3',
+        [result.inputTokens, result.outputTokens, run.id],
+      );
       await tx.query(
         'INSERT INTO usage_events(id,project_id,agent_id,run_id,user_id,model,input_tokens,output_tokens,estimated_cost,latency_ms) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
         [

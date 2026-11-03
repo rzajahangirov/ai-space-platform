@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: agentspace-meta-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    repo: https://github.com/aliyev-toghrul/ai-space-platform
+    branch: hackathon/meta-impact-review
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: 'true'
+      - key: DATABASE_URL
+        fromDatabase:
+          name: agentspace-meta-db
+          property: connectionString
+      - key: DATABASE_POOL_MAX
+        value: '5'
+      - key: APP_ORIGIN
+        sync: false
+      - key: LIVE_ORIGIN
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: DEMO_PASSWORD
+        generateValue: true
+      - key: SEED_DEMO
+        value: 'on'
+      - key: LIVE_REVIEW
+        value: 'off'
+databases:
+  - name: agentspace-meta-db
+    plan: free
+    region: frankfurt
+    databaseName: agentspace
+    user: agentspace
+    ipAllowList: []

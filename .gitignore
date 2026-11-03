@@ -7,3 +7,7 @@ test-results/
 playwright-report/
 *.log
 .local/
+
+.vercel/
+.vercel
+.env*

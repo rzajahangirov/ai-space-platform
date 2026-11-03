@@ -1,0 +1,8 @@
+.env
+.env.*
+.data
+.local
+node_modules
+test-results
+playwright-report
+coverage

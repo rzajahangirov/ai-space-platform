@@ -175,6 +175,7 @@ export function registerRoutes(app: FastifyInstance, db: DB, hub: RealtimeHub, o
         usage,
         // Which model providers have server-side credentials (never the keys themselves).
         availableProviders: {
+          meta: !!(process.env.MODEL_API_KEY || process.env.OPENROUTER_API_KEY),
           openai: !!process.env.OPENAI_API_KEY,
           anthropic: !!process.env.ANTHROPIC_API_KEY,
           google: !!process.env.GOOGLE_API_KEY,
@@ -358,7 +359,7 @@ export function registerRoutes(app: FastifyInstance, db: DB, hub: RealtimeHub, o
         'frontend',
       ]),
       description: z.string().max(2000),
-      provider: z.enum(['local', 'openai', 'anthropic', 'google']),
+      provider: z.enum(['local', 'openai', 'anthropic', 'google', 'meta']),
       model: z.string().trim().min(1).max(100),
       instructions: z.string().max(8000),
       enabled: z.boolean(),

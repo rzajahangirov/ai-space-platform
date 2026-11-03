@@ -259,3 +259,38 @@ test('council page: node view, limits, and a clear error without model credentia
   await expect(page.getByText('No decisions were produced.')).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('tab focus and reload preserve session, saved graph, findings and navigation', async ({
+  page,
+  context,
+}) => {
+  await login(page);
+  await page
+    .locator('nav')
+    .getByRole('button', { name: /Findings/ })
+    .click();
+  await expect(page.locator('.finding-card').first()).toBeVisible({ timeout: 20000 });
+  const before = await page.evaluate(async () => {
+    const { projects } = await (await fetch('/api/projects')).json();
+    return (await fetch(`/api/projects/${projects[0].id}/snapshot`)).json();
+  });
+  await page.evaluate(() => {
+    (window as any).__tabMarker = 'same-document';
+  });
+  const other = await context.newPage();
+  await other.goto('about:blank');
+  await page.bringToFront();
+  await expect(page.getByRole('heading', { name: 'Engineering findings' })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__tabMarker)).toBe('same-document');
+  await other.close();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Engineering findings' })).toBeVisible();
+  const after = await page.evaluate(async () => {
+    const { projects } = await (await fetch('/api/projects')).json();
+    return (await fetch(`/api/projects/${projects[0].id}/snapshot`)).json();
+  });
+  expect(after.project.revision).toBe(before.project.revision);
+  expect(after.graph).toEqual(before.graph);
+  expect(after.findings.length).toBeGreaterThanOrEqual(before.findings.length);
+  expect(after.proposals.length).toBeGreaterThanOrEqual(before.proposals.length);
+});

@@ -166,3 +166,23 @@ This is a locally runnable engineering MVP with production-oriented boundaries, 
 - Discovery is static analysis of manifests, not repository code scanning or runtime telemetry. Matching uses explicit `composeService`/`packageName` config, then names, then technology for infrastructure only.
 
 See [architecture](docs/architecture.md) for the domain, consistency model, agent flow, and expansion path. Official implementation references are recorded in [sources](docs/sources.md).
+
+## Meta review — November 3 hackathon contribution
+
+Baseline: `598a16a5` (October 9). The canvas, discovery/import, conversations,
+findings, proposals, human approval, and ChatGPT + Gemini Council predate the event.
+This change adds a Meta structured-review provider, provider selection, failure
+contract tests, and an explicit uncached connectivity check. Council is unchanged.
+
+Set `MODEL_API_KEY` (direct Meta API) or `OPENROUTER_API_KEY` (`meta/muse-*` routing) only in the
+backend environment (local `.env` or Render), then run `npx tsx scripts/meta-smoke.ts`. It makes a
+genuine request to `muse-spark-1.3` and prints validation/usage metadata without the key or
+response body. Mock tests are not evidence of live inference. Meta reviews bypass the application
+response cache.
+
+In Agents, configure one reviewer with provider `meta`, model `muse-spark-1.3`.
+For an empty workspace, create a separate demo project, use Import existing system
+→ Load sample Compose file, inspect the selection, and merge it. Do not overwrite
+an existing project or use the public local seed credentials on a shared deployment.
+Use the existing component review/conversation flow; model recommendations require
+human assessment, and proposal approval changes the architecture specification only.
